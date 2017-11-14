@@ -12,3 +12,6 @@ melted = pd.melt(df, 'Timestamp', columns)
 
 # Sort by user
 melted.sort_values('Timestamp', inplace=True)
+
+# Write to file
+melted.to_csv('/Users/jake/Downloads/mp_responses.csv', index=False)
