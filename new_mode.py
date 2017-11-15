@@ -5,29 +5,6 @@ import pandas as pd
 import numpy as np
 from statistics import mode, StatisticsError
 
-# Read in "placeholder" file
-df = pd.read_excel('mp_data.xlsx')
-
-# Ignore images already retired
-df = df[df['Retired'] == 'Retired']
-
-# Read in rater reliability ratings
-ratings_df = pd.read_csv('user_ratings.csv')
-
-ratings_df = ratings_df[ratings_df['reliability_score'].notnull()]
-
-# Join each rater's agreement index score with each image they've seen (each row)
-df = pd.merge(df, ratings_df,
-            left_on='User_Name',
-            right_on='index',
-            how='left')
-
-# Hmmm... will have to find out a way to handle those without a 
-# reliability score... for now, exclude from both df and ratings_df
-df = df[df['reliability_score'].notnull()]
-
-idk_val = "I can't figure this one out."
-
 def rev_sorted(a):
     '''Basically a wrapper to pass `reverse` argument using df.apply'''
     return sorted(a, reverse=True)
@@ -74,6 +51,29 @@ def iter_until(answers, ranks, answer_limit={'Yes', 'No'}, rank_limit=1000):
     data = {'next_best_answer': curr_val, 'next_best_rank': curr_rank,
             'index': next_idx-1, 'could_not_find_flag': could_not_find_flag}
     return data
+
+# Read in "placeholder" file
+df = pd.read_excel('mp_data.xlsx')
+
+# Ignore images already retired
+df = df[df['Retired'] == 'Retired']
+
+# Read in rater reliability ratings
+ratings_df = pd.read_csv('user_ratings.csv')
+
+ratings_df = ratings_df[ratings_df['reliability_score'].notnull()]
+
+# Join each rater's agreement index score with each image they've seen (each row)
+df = pd.merge(df, ratings_df,
+            left_on='User_Name',
+            right_on='index',
+            how='left')
+
+# Hmmm... will have to find out a way to handle those without a 
+# reliability score... for now, exclude from both df and ratings_df
+df = df[df['reliability_score'].notnull()]
+
+idk_val = "I can't figure this one out."
 
 # The values will be one in the case of raters' sharing 
 # an identical reliability score... Or in the case of a rater 
@@ -167,4 +167,4 @@ frame.sort_values('top_two_ratio', inplace=True)
 # If someone with a high rank says "IDK" but someone with a 
 # similar rank says "yes", maybe you take the "yes" instead of manually
 # reading the deed yourself...
-print(frame[(frame['no_conflicts'] == True) & (frame['idk_flag'] == True)])
+print(frame[(frame['no_conflicts'] == False) & (frame['idk_flag'] == True)])
