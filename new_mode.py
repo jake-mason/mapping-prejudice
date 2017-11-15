@@ -167,4 +167,4 @@ frame.sort_values('top_two_ratio', inplace=True)
 # If someone with a high rank says "IDK" but someone with a 
 # similar rank says "yes", maybe you take the "yes" instead of manually
 # reading the deed yourself...
-print(frame[(frame['no_conflicts'] == False) & (frame['idk_flag'] == True)])
+print(frame[(frame['no_conflicts'] == True) & (frame['idk_flag'] == True)])
