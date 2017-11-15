@@ -26,6 +26,7 @@ df = pd.merge(df, ratings_df,
 # reliability score... for now, exclude from both df and ratings_df
 df = df[df['reliability_score'].notnull()]
 
+idk_val = "I can't figure this one out."
 
 def rev_sorted(a):
     '''Basically a wrapper to pass `reverse` argument using df.apply'''
@@ -45,6 +46,35 @@ def rating_ratio(a):
     except IndexError:
         return None
 
+def iter_until(answers, ranks, answer_limit={'Yes', 'No'}, rank_limit=1000):
+    '''Iterate through list of answers and ranks to find satisfactory answer
+    
+    Example:
+        >>> answers = ["I can't figure this one out.", 'Yes']
+        >>> rater_ranks = [1, 23]
+        >>> iter_until(answers, rater_ranks)
+        {'answer': 'Yes', 'index': 1, 'rank': 23}
+    '''
+    if not all(isinstance(x, (list, tuple)) for x in [answers, ranks]):
+        raise ValueError('Convert `answers` and `rank` to list or tuple')
+
+    together = list(zip(answers, ranks))
+
+    curr_val, curr_rank = together[0]
+    next_idx = 1
+
+    while curr_val not in answer_limit and curr_rank < rank_limit:
+        try:
+            curr_val, curr_rank = together[next_idx]
+            next_idx += 1
+            could_not_find_flag = False
+        except IndexError:
+            could_not_find_flag = True
+            break
+    data = {'next_best_answer': curr_val, 'next_best_rank': curr_rank,
+            'index': next_idx-1, 'could_not_find_flag': could_not_find_flag}
+    return data
+
 # The values will be one in the case of raters' sharing 
 # an identical reliability score... Or in the case of a rater 
 # seeing the same image twice (and thus being seen as two different raters)
@@ -61,14 +91,14 @@ data = []
 for img_id, frame in df.groupby('Image_ID'):
     try:
         mode_val = mode(frame['Match'])
-
-        no_conflicts = True
         
-        if mode_val == "I can't figure this one out.":
+        if mode_val == idk_val:
             idk_flag = True
         else:
             idk_flag = False
         
+        no_conflicts = True
+
         data.append({
             'img_id': img_id,
             'mode': mode_val,
@@ -94,15 +124,18 @@ for img_id, frame in df.groupby('Image_ID'):
 
         top_two_ratio = gb.ix[img_id]
 
-        if mode_val == "I can't figure this one out.":
+        row_data = {}
+
+        if mode_val == idk_val:
             idk_flag = True
+            next_best_data = iter_until(answers, rater_ranks)
+            row_data = {**row_data, **next_best_data}
         else:
-            idx_flag = False
+            idk_flag = False
 
         no_conflicts = False
 
-        data.append(
-            {
+        more_data = {
             'img_id': img_id,
             'top_answer': mode_val,
             'answers': answers,
@@ -113,9 +146,10 @@ for img_id, frame in df.groupby('Image_ID'):
             'top_two_ratio': top_two_ratio,
             'idk_flag': idk_flag,
             'no_conflicts': no_conflicts
-            }
-        )
+        }
+        row_data = {**row_data, **more_data}
 
+        data.append(row_data)
 
 frame = pd.DataFrame.from_records(data)
 # Sort ascending by top_two_ratio
@@ -133,3 +167,4 @@ frame.sort_values('top_two_ratio', inplace=True)
 # If someone with a high rank says "IDK" but someone with a 
 # similar rank says "yes", maybe you take the "yes" instead of manually
 # reading the deed yourself...
+print(frame[(frame['no_conflicts'] == False) & (frame['idk_flag'] == True)])
