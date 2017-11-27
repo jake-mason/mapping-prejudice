@@ -1,5 +1,36 @@
+'''
+Reliability score calculation script
+v1.0
+11/26/2017
+
+This script takes the output from Kevin's
+current "cleaning" script - a "placeholder" CSV file -
+and outputs "reliability" scores for each 
+volunteer. The reliability score for a given
+volunteer is the average of the Cohen's Kappa
+scores between that volunteer and every other
+volunteer multiplied by the log of the number
+of classifications completed by that user. The scale
+of the reliability score is fairly meaningless; the 
+score is meant to be used to rank raters, not really 
+for deep interpretation.
+
+Dependencies:
+
+Without getting too specific, this script
+should work with most versions of numpy, pandas,
+and scikit-learn. It is highly recommended that 
+you run Python >= 3.x and not Python 2.x.
+'''
+
+# If still running Python 2.x, need floating-point
+# division, not integer division
+import sys
+if sys.version_info.major == 2:
+    from __future__ import division
+
+# Edit this path to point to the "Intermediate" folder
 import os
-os.chdir('/path/to/intermediate')
 
 import time
 
@@ -12,32 +43,50 @@ def handle_zero_division(x, y):
         return x/y
     except ZeroDivisionError:
         return None
-        
-# This read a placeholder file
+
+os.chdir('/path/to/intermediate')
+
+# Read a placeholder file
 df = pd.read_csv('<PLACEHOLDER>.csv')
 
-# Sort to order by the most recent classification
-df.sort_values('Class_Date', ascending=False, inplace=True)
-# In the case of a user having seen an image more than once,
-# take their most recent answer (this is where the sorting from
-# above comes into play)
-df.drop_duplicates(subset=['User_Name', 'Image_ID'], inplace=True)
+# Will need in order to sort by the most recent classification
+df['Class_Date'] = pd.to_datetime(df['Class_Date'])
 
-# Master list which will store JSON, basically
+# In the case of a user having seen an image more than once,
+# take their most recent answer.
+df = (df.sort_values('Class_Date', ascending=False)
+     .drop_duplicates(subset=['User_Name', 'Image_ID']))
+
+# Master list which will store information
+# calculated below
 reliability_data = []
 
-for user, user_df in df.groupby('User_Name'):
-    # Images the main user has seen and associated ratings 
+# Create groupby object to iterate through below
+gb = df.groupby('User_Name')
+
+# For each volunteer ("user" == "volunteer")
+for user, user_df in gb:
+
+    # Images the main volunteer has seen and associated ratings 
     user_img_seen = dict(zip(user_df['Image_ID'], user_df['Match']))   
     
-    for other_user, other_df in df[df['User_Name'] != user].groupby('User_Name'):
-        # Images the other user has seen and associated ratings
+    # Create another groupby object for every other volunteer
+    other_gb = df[df['User_Name'] != user].groupby('User_Name')
+
+    # For every other user... You will want to automatically filter out 
+    # trolls/unreliable raters you find as you go along.. I think this is 
+    # part of the cleaning script currently.
+    for other_user, other_df in other_gb:
+
+        # Images the other volunteer has seen and associated ratings
         other_user_img_seen = dict(zip(other_df['Image_ID'], other_df['Match']))
         
-        # Set intersection between what the user's seen and what the other user has seen
+        # Set intersection between what the volunteer's 
+        # seen and what the other volunteer has seen
         common = set(user_img_seen) & set(other_user_img_seen)
 
-        # We only care to measure agreement between raters who have seen the same deeds
+        # We only care to measure agreement between 
+        # raters who have seen the same deeds
         if common:
             # Pairs of answers for each deed (image) commonly seen
             together = [(user_img_seen[img], other_user_img_seen[img])
@@ -63,6 +112,7 @@ for user, user_df in df.groupby('User_Name'):
                         
             # If we were able to calculate a kappa value
             if not np.isnan(cohen_kappa):
+
                 # Sets of IDs agreed- and disagreed-upon
                 agreements = {img for img in common 
                               if user_img_seen[img] == other_user_img_seen[img]}
@@ -75,7 +125,7 @@ for user, user_df in df.groupby('User_Name'):
                 n_agreements = len(agreements)
                 n_disagreements = len(disagreements)
 
-				# Data to keep
+				# Data to keep... JSON-style
                 reliability_data.append(
                     {
                     'user': user,
@@ -99,7 +149,8 @@ agreement_df = pd.DataFrame.from_records(reliability_data)
 # Obtain the average Kappa score for each user
 # this is an average of the kappa between a given user and every user with whom
 # they shared images and disagreed at least once
-# Median might be valuable to look at, too, depending on skewness
+# Median is a bad measure, here, because of the usual skewness 
+# of this distribution, so let's use mean
 avg_kappa = agreement_df.groupby(['user'])['cohen_kappa'].mean()
 
 # Number of classifications for each user
@@ -117,8 +168,21 @@ reliability_df['reliability_score'] = reliability_df['cohen_kappa'] * np.log(rel
 # Rank the reliability scores. This isn't explicitly used, but might be valuable someday...
 reliability_df['rank'] = reliability_df['reliability_score'].rank(ascending=False)
 
-# Save the results
+# Identify and flag raters in the
+# bottom 20% in terms of reliability...
+# could also look at bottom tail of distribution
+# of reliability scores... raters significantly 
+# (i.e. 1-2 stddevs) below "normal"
+n_raters = reliability_df.shape[0]
+perc = 0.2
+cutoff = n_raters * (1-perc)
+bottom_percent_ranks = {i for i in reliability_df['rank'] if i >= cutoff}
+
+reliability_df['bottom_percent'] = np.where(reliability_df.isin(bottom_percent_ranks), True, False)
+
+# Save the results with a unique (daily) identifier
 session_id = "_".join(map(str, time.localtime()[:3]))
 fname = 'reliability_scores_{}.csv'.format(session_id)
 
-reliability_df.reset_index().to_csv(fname, index=False)
+# Keep username as a column, obviously
+reliability_df.reset_index(drop=False).to_csv(fname, index=False)

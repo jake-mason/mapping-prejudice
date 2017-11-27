@@ -1,5 +1,36 @@
+'''
+Modal calculation, incorporating
+reliability scores
+v1.0
+11/26/2017
+
+This script takes the output from Kevin's
+current "cleaning" script - a "placeholder" CSV file -
+and outputs "reliability" scores for each 
+volunteer. The reliability score for a given
+volunteer is the average of the Cohen's Kappa
+scores between that volunteer and every other
+volunteer multiplied by the log of the number
+of classifications completed by that user. The scale
+of the reliability score is fairly meaningless; the 
+score is meant to be used to rank raters, not really 
+for deep interpretation.
+
+Dependencies:
+
+Without getting too specific, this script
+should work with most versions of numpy and pandas.
+It is highly recommended that 
+you run Python >= 3.x and not Python 2.x.
+'''
+
+# If still running Python 2.x, need floating-point
+# division, not integer division
+import sys
+if sys.version_info.major == 2:
+    from __future__ import division
+
 import os
-os.chdir('/Users/jake/Documents/stareightytwo/projects/mapping_prejudice/assets/data')
 
 import pandas as pd
 import numpy as np
@@ -52,15 +83,21 @@ def iter_until(answers, ranks, answer_limit={'Yes', 'No'}, rank_limit=1000):
             'index': next_idx-1, 'could_not_find_flag': could_not_find_flag}
     return data
 
-# Read in "placeholder" file
-df = pd.read_excel('mp_data.xlsx')
+os.chdir('/path/to/intermediate')
 
-# Ignore images already retired
+# Read a placeholder file
+df = pd.read_csv('<PLACEHOLDER>.csv')
+
+# Consider only those images "retired"
+# i.e. have been seen >= 4 times by separate raters
 df = df[df['Retired'] == 'Retired']
 
 # Read in rater reliability ratings
-ratings_df = pd.read_csv('user_ratings.csv')
+# should look like 'reliability_scores_YYYY_MM_DD.csv'.
+ratings_df = pd.read_csv('<RELIABILITY_SCORES>.csv')
 
+# Keep only those raters that have a reliability score
+# Most should, but keeping this just for good measure
 ratings_df = ratings_df[ratings_df['reliability_score'].notnull()]
 
 # Join each rater's agreement index score with each image they've seen (each row)
@@ -71,6 +108,9 @@ df = pd.merge(df, ratings_df,
 
 # Hmmm... will have to find out a way to handle those without a 
 # reliability score... for now, exclude from both df and ratings_df
+# I don't think this should be a huge issue. This would only 
+# be an issue in the case of a deed being retired by four
+# new volunteers who don't yet have a reliability score
 df = df[df['reliability_score'].notnull()]
 
 idk_val = "I can't figure this one out."
@@ -86,26 +126,36 @@ gb = (df.groupby('Image_ID')['reliability_score']
      .apply(top_n_raters)
      .apply(rating_ratio))
 
+# Master data list
 data = []
 
+# For each retired deed
 for img_id, frame in df.groupby('Image_ID'):
+    # Try to calculate the mode using the most-common-value current system...
+    # This is just being done on one field, "Match"... Kevin, you'll have to
+    # extend this to other fields, too.
     try:
         mode_val = mode(frame['Match'])
         
+        # If most popular value is IDK, flag that record
         if mode_val == idk_val:
             idk_flag = True
         else:
             idk_flag = False
         
+        # "No conflicts" meaning we were able to calc. mode
         no_conflicts = True
 
+        # Store information for this image
         data.append({
             'img_id': img_id,
             'mode': mode_val,
             'idk_flag': idk_flag,
             'no_conflicts': no_conflicts
         })
-        
+
+    # a StatisticsError exception will be raised when
+    # math.mode can't calculate mode 
     except StatisticsError:
         # Order the match choices based on rater reliability
         frame.sort_values('reliability_score',
@@ -113,8 +163,14 @@ for img_id, frame in df.groupby('Image_ID'):
                             inplace=True)
 
         # Probably easiest to take the answer of the most reliable rater
+        # This seems problematic, however, since Penny has seen every deed
+        # and is the most reliable rater. Because of this issue,
+        # we can track some other information below to make use
+        # of the reliability scores
         mode_val = frame['Match'].values[0]
 
+        # Track all of the answers, raters, and ranks
+        # involved with a particular deed
         answers = frame['Match'].values.tolist()
         raters = frame['User_Name'].values.tolist()
         rater_ranks = frame['rank'].values.tolist()
@@ -122,6 +178,7 @@ for img_id, frame in df.groupby('Image_ID'):
 
         top_rater = raters[0]
 
+        # Ratio of the ranks between the top two raters
         top_two_ratio = gb.ix[img_id]
 
         row_data = {}
@@ -147,11 +204,13 @@ for img_id, frame in df.groupby('Image_ID'):
             'idk_flag': idk_flag,
             'no_conflicts': no_conflicts
         }
+        
         row_data = {**row_data, **more_data}
 
         data.append(row_data)
 
 frame = pd.DataFrame.from_records(data)
+
 # Sort ascending by top_two_ratio
 # the downside of this approach is that the reliability score
 # is basically saying Penny's word is the truth every time
