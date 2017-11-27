@@ -1,4 +1,6 @@
 '''
+StarEightyTwo and Mapping Prejudice
+
 Reliability score calculation script
 v1.0
 11/26/2017

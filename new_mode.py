@@ -1,4 +1,6 @@
 '''
+StarEightyTwo and Mapping Prejudice
+
 Modal calculation, incorporating
 reliability scores
 v1.0
@@ -204,7 +206,7 @@ for img_id, frame in df.groupby('Image_ID'):
             'idk_flag': idk_flag,
             'no_conflicts': no_conflicts
         }
-        
+
         row_data = {**row_data, **more_data}
 
         data.append(row_data)
